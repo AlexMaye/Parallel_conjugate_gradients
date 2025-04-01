@@ -1,0 +1,8 @@
+#!/bin/bash -l
+#SBATCH --qos=math-454
+#SBATCH --account=math-454
+#SBATCH --qos=serial
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=4
+#SBATCH --time 02:00
+./cgsolver lap2D_5pt_n100.mtx
