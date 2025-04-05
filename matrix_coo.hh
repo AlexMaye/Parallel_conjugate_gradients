@@ -8,7 +8,7 @@
 class MatrixCOO {
 public:
   MatrixCOO() = default;
-  MatrixCOO(std::vector<double>& values, std::vector<int>& row_indices, std::vector<int>& col_indices);
+  MatrixCOO(const std::vector<double>& values, const std::vector<int>& row_indices, const std::vector<int>& col_indices);
     
 
   inline int m() const { return m_m; }
@@ -22,10 +22,10 @@ public:
   void mat_vec(const std::vector<double> & x, std::vector<double> & y) {
     std::fill_n(y.begin(), y.size(), 0.);
 
-    for (size_t z = 0; z < irn.size(); ++z) {
-      auto i = irn[z];
-      auto j = jcn[z];
-      auto a_ = a[z];
+    for (std::size_t z = 0; z < irn.size(); ++z) {
+      const auto i = irn[z];
+      const auto j = jcn[z];
+      const auto a_ = a[z];
 
       y[i] += a_ * x[j];
       if (m_is_sym and (i != j)) {
@@ -44,6 +44,7 @@ private:
   int m_m{0};
   int m_n{0};
   bool m_is_sym{false};
+  void get_displs_sdcts(const std::vector<int>& irn, const int size, std::vector<int>& displs, std::vector<int>& sendcounts);
 };
 
 #endif // __MATRIX_COO_H_

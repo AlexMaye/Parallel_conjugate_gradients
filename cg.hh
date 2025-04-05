@@ -56,7 +56,7 @@ public:
   CGSolverSparse() = default;
   virtual void read_matrix(const std::string &filename);
   virtual void solve(std::vector<double> &x);
-  void parallel_solve(std::vector<double>& x, const std::vector<double>& m_b, const int m_n, const int size, const int rank);
+  void parallel_solve(std::vector<double>& x, const int m_n, const int size, const int rank);
 
 private:
   MatrixCOO m_A;

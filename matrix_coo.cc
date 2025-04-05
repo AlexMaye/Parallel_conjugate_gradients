@@ -3,6 +3,8 @@ extern "C" {
 #include "mmio.h"
 }
 #include <mpi.h>
+#include <unordered_map>
+#include "utils.cpp"
 
 void MatrixCOO::read(const std::string & fn) {
   int nz;
@@ -59,7 +61,7 @@ void MatrixCOO::read(const std::string & fn) {
   }
 }
 
-MatrixCOO::MatrixCOO(std::vector<double>& values, std::vector<int>& row_indices, std::vector<int>& col_indices)
+MatrixCOO::MatrixCOO(const std::vector<double>& values, const std::vector<int>& row_indices, const std::vector<int>& col_indices)
 {
   // Copy the distributed data to the base class vectors
   a = values;
@@ -76,45 +78,84 @@ MatrixCOO::MatrixCOO(std::vector<double>& values, std::vector<int>& row_indices,
   }
   
   // Symmetry is false because we use this constructor for the distributed matrix
-  m_is_sym = false;  // Default to non-symmetric
+  m_is_sym = false;
+}
+
+void MatrixCOO::get_displs_sdcts(const std::vector<int>& irn, const int size, std::vector<int>& displs, std::vector<int>& sendcounts){
+
+  //get number of elements per row, for example A=[0,0, 1,1,1, 2,2, 3,3, 4,4] will yield 
+  //[[0,2],
+  // [1,3],
+  // [2,2],
+  // [3,2],
+  // [4,2]]
+  std::unordered_map <std::size_t, int> row_counts;
+  for (std::size_t idx : irn) {
+      row_counts[idx]++;
+  }
+
+  const int n = row_counts.size();
+  std::vector<int> row_starts(n + 1, 0);
+  int cumulative_sum = 0;
+  for (std::size_t i = 0; i < n; ++i) {
+      cumulative_sum += row_counts[i];
+      row_starts[i + 1] = cumulative_sum;
+  }
+  //gives back at which index each sequence of elts starts, i.e for A we'll get [0,2,5,7,9,11]
+  
+  const int chunk_size = n / size;
+  const int remainder = n % size;
+  int start, end;
+
+  for(int rank = 0; rank < size; ++rank){
+  
+    if (rank < remainder) {
+        start = rank * (chunk_size + 1);
+        end = start + chunk_size + 1;
+    } else {
+        start = remainder * (chunk_size + 1) + (rank - remainder) * chunk_size;
+        end = start + chunk_size;
+    }
+    //std::cout << "Rank " << rank << " gets rows from " << row_starts[start] << " to " << row_starts[end] << std::endl;
+
+    displs[rank] = row_starts[start];
+    sendcounts[rank] = row_starts[end] - row_starts[start];
+  }
 }
 
 
 void MatrixCOO::distribute_mat(std::vector<double>& distrib_a, std::vector<int>& distrib_irn, 
   std::vector<int>& distrib_jrn, const int size, const int rank) {
-// Calculate distribution sizes
-  const int total_elements = nz();
-  const int base_size = total_elements / size;
-  const int remainder = total_elements % size;
 
-  // Root gets extra elements so that there is minimal communication to distant cores
-  const int my_size = (rank == 0) ? base_size + remainder : base_size;
-
-  // Resize destination vectors based on how many elements this process will receive
-  if a.size() != my_size {distrib_a.resize(my_size);}
-  if irn.size() != my_size {distrib_irn.resize(my_size);}
-  if jrn.size() != my_size {distrib_jrn.resize(my_size);}
-
-  // Create arrays for counts and displacements
+  //Declare variables for Scatterv
   std::vector<int> sendcounts(size);
   std::vector<int> displs(size);
 
-  // Set up counts and displacements
-  displs[0] = 0;
-  sendcounts[0] = base_size + remainder; //core 0 gets the most element
+  //reorder vectors
+  const std::vector<std::size_t> indices = argsort(irn);
+  const std::vector<int> ordered_irn = reorderVector(irn, indices);
+  const std::vector<int> ordered_jcn = reorderVector(jcn, indices);
+  const std::vector<double> ordered_a = reorderVector(a, indices);
 
-  for (int i = 1; i < size; ++i) {
-    displs[i] = displs[i-1] + sendcounts[i-1]; //start sending data to core i+1 located just after the end of data sent to core i
-    sendcounts[i] = base_size; // all cores except 0 get the same amount of data
-  }
+  
+  // Calculate distribution sizes  
+  if (rank == 0){
+    get_displs_sdcts(ordered_irn, size, displs, sendcounts);}
 
-  // Scatter using variable counts
-  MPI_Scatterv(a.data(), sendcounts.data(), displs.data(), MPI_DOUBLE,
-  distrib_a.data(), my_size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  //Make sure the receive buffers have the correct size
+  MPI_Bcast(sendcounts.data(), sendcounts.size(), MPI_INT, 0, MPI_COMM_WORLD);
+  const int count_recv = sendcounts[rank]
+  distrib_a.resize(count_recv);
+  distribut_irn.resize(count_recv);
+  distrib_jrn.resize(count_recv);
 
-  MPI_Scatterv(irn.data(), sendcounts.data(), displs.data(), MPI_INT,
-  distrib_irn.data(), my_size, MPI_INT, 0, MPI_COMM_WORLD);
+  //Scatter the data
+  MPI_Scatterv(ordered_a.data(), sendcounts.data(), displs.data(), MPI_DOUBLE,
+  distrib_a.data(), count_recv, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
-  MPI_Scatterv(jcn.data(), sendcounts.data(), displs.data(), MPI_INT,
-  distrib_jrn.data(), my_size, MPI_INT, 0, MPI_COMM_WORLD);
+  MPI_Scatterv(ordered_irn.data(), sendcounts.data(), displs.data(), MPI_INT,
+  distrib_irn.data(), count_recv, MPI_INT, 0, MPI_COMM_WORLD);
+
+  MPI_Scatterv(ordered_jcn.data(), sendcounts.data(), displs.data(), MPI_INT,
+  distrib_jrn.data(), count_recv, MPI_INT, 0, MPI_COMM_WORLD);
 }
