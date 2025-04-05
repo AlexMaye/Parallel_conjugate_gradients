@@ -126,6 +126,11 @@ void MatrixCOO::get_displs_sdcts(const std::vector<int>& irn, const int size, st
 
 void MatrixCOO::distribute_mat(std::vector<double>& distrib_a, std::vector<int>& distrib_irn, 
   std::vector<int>& distrib_jrn, const int size, const int rank) {
+  
+  // If matrix is symmetric, add the missing elements
+  if (m_is_sym) {
+    expand_indices(irn, jcn, a);
+  }
 
   //Declare variables for Scatterv
   std::vector<int> sendcounts(size);
@@ -146,7 +151,7 @@ void MatrixCOO::distribute_mat(std::vector<double>& distrib_a, std::vector<int>&
   MPI_Bcast(sendcounts.data(), sendcounts.size(), MPI_INT, 0, MPI_COMM_WORLD);
   const int count_recv = sendcounts[rank]
   distrib_a.resize(count_recv);
-  distribut_irn.resize(count_recv);
+  distrib_irn.resize(count_recv);
   distrib_jrn.resize(count_recv);
 
   //Scatter the data
