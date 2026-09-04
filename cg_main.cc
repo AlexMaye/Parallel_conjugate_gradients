@@ -10,9 +10,8 @@ using time_point = std::chrono::time_point<clk>;
 Implementation of a simple CG solver using matrix in the mtx format (Matrix
 market) Any matrix in that format can be used to test the code
 */
-int
-main(int argc, char **argv)
-{
+int sequential_main(int argc, char **argv){
+  // Parallel implementation is the function below this one. Keeping this one for reference.
   if (argc < 2)
   {
     std::cerr << "Usage: " << argv[0] << " [martix-market-filename]" << std::endl;
@@ -39,10 +38,8 @@ main(int argc, char **argv)
   return 0;
 }
 
-int
-parallel_main(int argc, char **argv)
-
-{
+int main(int argc, char **argv){
+  // Parallel implementation using MPI.
   if (argc < 2)
   {
     std::cerr << "Usage: " << argv[0] << " [martix-market-filename]" << std::endl;
